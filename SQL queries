@@ -1,0 +1,252 @@
+-- 1. Ranking Countries by Total Trade Value
+-- Description: Rank countries by their total trade values and calculate trade balance.
+SELECT
+   reporting_country,
+   SUM(value) AS total_trade_value,
+   ROW_NUMBER() OVER (ORDER BY SUM(value) DESC) AS trade_rank,
+   RANK() OVER (ORDER BY SUM(value) DESC) AS trade_rank_with_ties,
+   DENSE_RANK() OVER (ORDER BY SUM(value) DESC) AS trade_dense_rank,
+   NTILE(4) OVER (ORDER BY SUM(value) DESC) AS trade_quartile,
+   SUM(CASE WHEN trade_flow = 'Export' THEN value ELSE -value END) AS trade_balance
+FROM trade_data
+GROUP BY reporting_country
+ORDER BY trade_rank;
+
+-- 2. Moving Average of Trade Volumes
+-- Description: Calculate a 3-month moving average of trade volumes.
+SELECT
+   reporting_country,
+   trade_date,
+   SUM(value) OVER (PARTITION BY reporting_country ORDER BY trade_date ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS moving_avg_trade_volume
+FROM trade_data
+WHERE reporting_country = 'Russia'
+ORDER BY trade_date;
+
+-- 3. Yearly Growth Rate of Trade Volumes
+-- Description: Calculate the yearly percentage change in trade volumes.
+SELECT
+   reporting_country,
+   YEAR(trade_date) AS trade_year,
+   SUM(value) AS total_trade_value,
+   LAG(SUM(value)) OVER (PARTITION BY reporting_country ORDER BY trade_year) AS prev_year_trade_value,
+   ((SUM(value) - LAG(SUM(value)) OVER (PARTITION BY reporting_country ORDER BY trade_year)) / LAG(SUM(value)) OVER (PARTITION BY reporting_country ORDER BY trade_year)) * 100 AS yearly_growth_rate
+FROM trade_data
+WHERE reporting_country = 'Russia'
+ORDER BY trade_year;
+
+-- 4. Top Trading Partners by Year
+-- Description: Rank top trading partners for each year.
+SELECT
+   reporting_country,
+   partner_country,
+   trade_year,
+   SUM(value) AS yearly_trade_value,
+   RANK() OVER (PARTITION BY reporting_country, trade_year ORDER BY SUM(value) DESC) AS trade_partner_rank
+FROM trade_data
+WHERE reporting_country = 'Russia'
+ORDER BY trade_year, trade_partner_rank;
+
+-- 5. Cumulative Distribution of Trade Balances
+-- Description: Calculate the cumulative distribution of trade balances using window functions.
+SELECT
+   reporting_country,
+   trade_year,
+   SUM(CASE WHEN trade_flow = 'Export' THEN value ELSE -value END) AS trade_balance,
+   PERCENT_RANK() OVER (PARTITION BY reporting_country ORDER BY trade_year) AS cumulative_percent_rank
+FROM trade_data
+WHERE reporting_country = 'Russia'
+ORDER BY trade_year;
+
+-- 6. Trade Volume Fluctuations by Month and Year
+-- Description: Calculate the percentage change in trade volumes by month and year, relative to the previous year's average.
+SELECT
+   reporting_country,
+   YEAR(trade_date) AS trade_year,
+   MONTH(trade_date) AS trade_month,
+   SUM(value) AS monthly_trade_value,
+   (SUM(value) - AVG(SUM(value)) OVER (PARTITION BY reporting_country, MONTH(trade_date) ORDER BY YEAR(trade_date) ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)) / AVG(SUM(value)) OVER (PARTITION BY reporting_country, MONTH(trade_date) ORDER BY YEAR(trade_date) ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) * 100 AS trade_fluctuation_percentage
+FROM trade_data
+WHERE reporting_country = 'Russia'
+ORDER BY trade_year, trade_month;
+
+-- 7. Product Category Market Share Analysis
+-- Description: Calculate the market share of product categories by year.
+SELECT
+   YEAR(trade_date) AS trade_year,
+   product_category,
+   SUM(value) AS yearly_trade_value,
+   SUM(value) / SUM(SUM(value)) OVER (PARTITION BY YEAR(trade_date)) AS market_share
+FROM trade_data
+WHERE reporting_country = 'Russia'
+GROUP BY trade_year, product_category
+ORDER BY trade_year, market_share DESC;
+
+-- 8. Identifying Trade Trends in Multiple Categories
+-- Description: Find countries with consistent growth in multiple product categories.
+WITH category_growth AS (
+   SELECT
+       reporting_country,
+       YEAR(trade_date) AS trade_year,
+       product_category,
+       SUM(value) AS yearly_trade_value,
+       LAG(SUM(value)) OVER (PARTITION BY reporting_country, product_category ORDER BY YEAR(trade_date)) AS prev_year_trade_value
+   FROM trade_data
+   WHERE reporting_country = 'Russia'
+)
+SELECT
+   reporting_country,
+   trade_year,
+   product_category,
+   CASE
+       WHEN yearly_trade_value > prev_year_trade_value THEN 'Growing'
+       WHEN yearly_trade_value < prev_year_trade_value THEN 'Declining'
+       ELSE 'Stable'
+   END AS category_growth
+FROM category_growth
+ORDER BY reporting_country, trade_year, product_category;
+
+-- 9. Trade Balance Trend Over Time for Russia
+-- Description: Visualize the trend in trade balances over time for Russia, including export and import trends.
+WITH trade_balance AS (
+   SELECT
+       YEAR(trade_date) AS trade_year,
+       SUM(CASE WHEN trade_flow = 'Export' THEN value ELSE -value END) AS trade_balance
+   FROM trade_data
+   WHERE reporting_country = 'Russia'
+   GROUP BY trade_year
+   ORDER BY trade_year
+)
+SELECT
+   trade_year,
+   trade_balance,
+   LAG(trade_balance) OVER (ORDER BY trade_year) AS prev_year_balance
+FROM trade_balance;
+
+-- 10. Comparative Analysis of Trade Partners for Russia
+-- Description: Compare trade partners for Russia in terms of trade volumes and trade balance.
+WITH partner_summary AS (
+   SELECT
+       partner_country,
+       SUM(value) AS total_trade_value,
+       SUM(CASE WHEN trade_flow = 'Export' THEN value ELSE -value END) AS trade_balance
+   FROM trade_data
+   WHERE reporting_country = 'Russia'
+   GROUP BY partner_country
+)
+SELECT
+   partner_country,
+   total_trade_value,
+   trade_balance,
+   RANK() OVER (ORDER BY total_trade_value DESC) AS trade_volume_rank,
+   RANK() OVER (ORDER BY trade_balance DESC) AS trade_balance_rank
+FROM partner_summary
+ORDER BY total_trade_value DESC;
+
+-- 11. Seasonal Trade Patterns for Russia
+-- Description: Identify seasonal patterns in trade volumes for Russia.
+WITH monthly_trade AS (
+   SELECT
+       reporting_country,
+       MONTH(trade_date) AS trade_month,
+       SUM(value) AS monthly_trade_value
+   FROM trade_data
+   WHERE reporting_country = 'Russia'
+   GROUP BY reporting_country, trade_month
+)
+SELECT
+   reporting_country,
+   trade_month,
+   monthly_trade_value,
+   AVG(monthly_trade_value) OVER (PARTITION BY trade_month) AS monthly_average_trade
+FROM monthly_trade
+ORDER BY trade_month;
+
+-- 12. Top Exported and Imported Products for Russia
+-- Description: Identify the top exported and imported products by trade value for Russia.
+WITH top_exported AS (
+   SELECT
+       product_name,
+       SUM(value) AS total_export_value
+   FROM trade_data
+   WHERE reporting_country = 'Russia' AND trade_flow = 'Export'
+   GROUP BY product_name
+   ORDER BY total_export_value DESC
+   LIMIT 10
+),
+top_imported AS (
+   SELECT
+       product_name,
+       SUM(value) AS total_import_value
+   FROM trade_data
+   WHERE reporting_country = 'Russia' AND trade_flow = 'Import'
+   GROUP BY product_name
+   ORDER BY total_import_value DESC
+   LIMIT 10
+)
+SELECT
+   'Top Exported Products' AS category,
+   product_name,
+   total_export_value AS trade_value
+FROM top_exported
+UNION ALL
+SELECT
+   'Top Imported Products' AS category,
+   product_name,
+   total_import_value AS trade_value
+FROM top_imported;
+
+-- 13. Trade Balance with Top Trading Partners for Russia
+-- Description: Calculate the trade balance with the top trading partners for Russia.
+WITH top_partners AS (
+   SELECT
+       partner_country,
+       SUM(value) AS total_trade_value,
+       SUM(CASE WHEN trade_flow = 'Export' THEN value ELSE -value END) AS trade_balance
+   FROM trade_data
+   WHERE reporting_country = 'Russia'
+   GROUP BY partner_country
+   ORDER BY total_trade_value DESC
+   LIMIT 10
+)
+SELECT
+   partner_country,
+   total_trade_value,
+   trade_balance
+FROM top_partners;
+
+-- 14. Yearly Trade Volume and Balance for Russia
+-- Description: Calculate yearly trade volumes and trade balances for Russia.
+SELECT
+   YEAR(trade_date) AS trade_year,
+   SUM(CASE WHEN trade_flow = 'Export' THEN value ELSE -value END) AS trade_balance,
+   SUM(value) AS trade_volume
+FROM trade_data
+WHERE reporting_country = 'Russia'
+GROUP BY trade_year
+ORDER BY trade_year;
+
+-- 15. Monthly Trade Trends for Russia
+-- Description: Analyze monthly trade trends for Russia, including trade volume and balance.
+SELECT
+   YEAR(trade_date) AS trade_year,
+   MONTH(trade_date) AS trade_month,
+   SUM(value) AS trade_volume,
+   SUM(CASE WHEN trade_flow = 'Export' THEN value ELSE -value END) AS trade_balance
+FROM trade_data
+WHERE reporting_country = 'Russia'
+GROUP BY trade_year, trade_month
+ORDER BY trade_year, trade_month;
+
+-- 16. Trade Concentration Index for Russia
+-- Description: Calculate the trade concentration index for Russia to measure diversification.
+WITH partner_trade AS (
+   SELECT
+       partner_country,
+       SUM(value) AS total_trade_value
+   FROM trade_data
+   WHERE reporting_country = 'Russia'
+   GROUP BY partner_country
+)
+SELECT
+   1 - SUM(total_trade_value * total_trade_value) / (SUM(total_trade_value) * SUM(total_trade_value)) AS trade_concentration_index
+FROM partner_trade;
