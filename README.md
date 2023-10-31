@@ -1,4 +1,4 @@
-**Project Title:** Analysis of International Trade Patterns
+# Analysis of International Trade Patterns
 
 **Project Overview:**
 This project aims to analyze international trade data to gain a comprehensive understanding of global trade patterns, identify trends, and extract insights that can aid decision-makers in various industries.
